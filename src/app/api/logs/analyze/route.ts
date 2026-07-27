@@ -4,6 +4,7 @@ import { getDb } from "@/lib/firebase-admin";
 import { uploadThumbnail } from "@/lib/cloudinary";
 import { prepareForAnalysis, prepareThumbnail } from "@/lib/image";
 import { analyzeFoodPhoto, type ImageMediaType } from "@/lib/anthropic";
+import { getUserId } from "@/lib/requestUser";
 import type { LogEntry } from "@/lib/types";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -16,6 +17,11 @@ const ALLOWED_TYPES: Record<string, ImageMediaType> = {
 
 export async function POST(request: NextRequest) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const formData = await request.formData().catch(() => null);
     if (!formData) {
       return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
@@ -67,6 +73,7 @@ export async function POST(request: NextRequest) {
     const docRef = db.collection("logs").doc();
 
     const logData = {
+      userId,
       timestamp: FieldValue.serverTimestamp(),
       photoThumbnailUrl: secureUrl,
       photoPublicId: publicId,

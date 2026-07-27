@@ -7,6 +7,7 @@ import {
   isLockedOut,
   recordFailedLogin,
   clearLoginAttempts,
+  getConfiguredUsers,
 } from "@/lib/auth";
 
 function getClientIp(request: NextRequest): string {
@@ -33,24 +34,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
     }
 
-    const passwordHash = process.env.APP_PASSWORD_HASH;
-    if (!passwordHash) {
+    const users = getConfiguredUsers();
+    if (users.length === 0) {
       return NextResponse.json(
         { error: "Server is not configured" },
         { status: 500 }
       );
     }
 
-    const isMatch = await bcrypt.compare(password, passwordHash);
+    let matchedUserId: string | null = null;
+    for (const user of users) {
+      if (await bcrypt.compare(password, user.passwordHash)) {
+        matchedUserId = user.userId;
+        break;
+      }
+    }
 
-    if (!isMatch) {
+    if (!matchedUserId) {
       recordFailedLogin(ip);
       return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
     }
 
     clearLoginAttempts(ip);
 
-    const token = signSessionToken();
+    const token = signSessionToken(matchedUserId);
     const response = NextResponse.json({ success: true });
     response.cookies.set(SESSION_COOKIE_NAME, token, {
       httpOnly: true,

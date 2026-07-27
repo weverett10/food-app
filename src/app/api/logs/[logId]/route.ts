@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getDb } from "@/lib/firebase-admin";
 import { deleteImage } from "@/lib/cloudinary";
+import { getUserId } from "@/lib/requestUser";
 import type { FoodItem, LogEntry } from "@/lib/types";
 
 function docToLogEntry(id: string, data: FirebaseFirestore.DocumentData): LogEntry {
@@ -24,14 +25,19 @@ function docToLogEntry(id: string, data: FirebaseFirestore.DocumentData): LogEnt
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ logId: string }> }
 ) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { logId } = await params;
     const db = getDb();
     const doc = await db.collection("logs").doc(logId).get();
-    if (!doc.exists) {
+    if (!doc.exists || doc.data()?.userId !== userId) {
       return NextResponse.json({ error: "Log not found" }, { status: 404 });
     }
     return NextResponse.json(docToLogEntry(doc.id, doc.data()!));
@@ -45,6 +51,11 @@ export async function PATCH(
   { params }: { params: Promise<{ logId: string }> }
 ) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { logId } = await params;
     const body = await request.json().catch(() => null);
     if (!body) {
@@ -54,7 +65,7 @@ export async function PATCH(
     const db = getDb();
     const docRef = db.collection("logs").doc(logId);
     const existing = await docRef.get();
-    if (!existing.exists) {
+    if (!existing.exists || existing.data()?.userId !== userId) {
       return NextResponse.json({ error: "Log not found" }, { status: 404 });
     }
 
@@ -86,15 +97,20 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ logId: string }> }
 ) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { logId } = await params;
     const db = getDb();
     const docRef = db.collection("logs").doc(logId);
     const doc = await docRef.get();
-    if (!doc.exists) {
+    if (!doc.exists || doc.data()?.userId !== userId) {
       return NextResponse.json({ error: "Log not found" }, { status: 404 });
     }
     const publicId = doc.data()?.photoPublicId;

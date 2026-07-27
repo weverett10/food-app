@@ -40,7 +40,8 @@ export default function TodayPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const libraryInputRef = useRef<HTMLInputElement>(null);
 
   const refreshQueueState = useCallback(async () => {
     const queue = await getQueuedActions();
@@ -112,7 +113,8 @@ export default function TodayPage() {
     setSelectedFile(null);
     setNote("");
     setError(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+    if (libraryInputRef.current) libraryInputRef.current.value = "";
   }
 
   async function handleAnalyze() {
@@ -198,17 +200,32 @@ export default function TodayPage() {
       </header>
 
       <main className="mx-auto w-full max-w-md flex-1 px-4 py-4">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 py-3 font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
-        >
-          Log a meal
-        </button>
+        <div className="mb-4 flex gap-2">
+          <button
+            onClick={() => cameraInputRef.current?.click()}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-neutral-900 py-3 font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
+          >
+            Take Photo
+          </button>
+          <button
+            onClick={() => libraryInputRef.current?.click()}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-neutral-300 py-3 font-medium text-neutral-900 dark:border-neutral-700 dark:text-neutral-100"
+          >
+            Choose from Library
+          </button>
+        </div>
         <input
-          ref={fileInputRef}
+          ref={cameraInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/heic"
           capture="environment"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+        <input
+          ref={libraryInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/heic"
           onChange={handleFileSelect}
           className="hidden"
         />

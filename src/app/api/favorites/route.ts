@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getDb } from "@/lib/firebase-admin";
+import { getUserId } from "@/lib/requestUser";
 import type { Favorite, FoodItem } from "@/lib/types";
 
 function toFavorite(id: string, data: FirebaseFirestore.DocumentData): Favorite {
@@ -18,10 +19,19 @@ function toFavorite(id: string, data: FirebaseFirestore.DocumentData): Favorite 
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const db = getDb();
-    const snapshot = await db.collection("favorites").orderBy("lastUsedAt", "desc").get();
+    const snapshot = await db
+      .collection("favorites")
+      .where("userId", "==", userId)
+      .orderBy("lastUsedAt", "desc")
+      .get();
     const favorites = snapshot.docs.map((doc) => toFavorite(doc.id, doc.data()));
     return NextResponse.json({ favorites });
   } catch {
@@ -31,6 +41,11 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json().catch(() => null);
     if (!body) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
@@ -46,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     if (body.logId) {
       const logDoc = await db.collection("logs").doc(body.logId).get();
-      if (!logDoc.exists) {
+      if (!logDoc.exists || logDoc.data()?.userId !== userId) {
         return NextResponse.json({ error: "Log not found" }, { status: 404 });
       }
       const logData = logDoc.data()!;
@@ -75,6 +90,7 @@ export async function POST(request: NextRequest) {
     const docRef = db.collection("favorites").doc();
     const now = FieldValue.serverTimestamp();
     await docRef.set({
+      userId,
       name,
       foods,
       totalCalories,

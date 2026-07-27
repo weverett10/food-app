@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Timestamp } from "firebase-admin/firestore";
 import { getDb } from "@/lib/firebase-admin";
 import { format } from "date-fns";
+import { getUserId } from "@/lib/requestUser";
 import type { LogEntry } from "@/lib/types";
 
 const MAX_DAYS_PER_REQUEST = 30;
@@ -39,6 +40,11 @@ function toLogEntry(doc: FirebaseFirestore.QueryDocumentSnapshot): LogEntry {
 
 export async function GET(request: NextRequest) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const tzOffsetMinutes = Number(searchParams.get("tzOffsetMinutes") ?? "0");
     const cursor = searchParams.get("cursor");
@@ -72,6 +78,7 @@ export async function GET(request: NextRequest) {
     const db = getDb();
     const snapshot = await db
       .collection("logs")
+      .where("userId", "==", userId)
       .where("timestamp", ">=", Timestamp.fromMillis(startMs))
       .where("timestamp", "<", Timestamp.fromMillis(endMs))
       .orderBy("timestamp", "desc")
@@ -106,6 +113,7 @@ export async function GET(request: NextRequest) {
     // Determine if there is any earlier data beyond this window
     const earlierSnapshot = await db
       .collection("logs")
+      .where("userId", "==", userId)
       .where("timestamp", "<", Timestamp.fromMillis(startMs))
       .limit(1)
       .get();

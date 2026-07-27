@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Timestamp } from "firebase-admin/firestore";
 import { getDb } from "@/lib/firebase-admin";
+import { getUserId } from "@/lib/requestUser";
 import type { LogEntry } from "@/lib/types";
 
 function toLogEntry(doc: FirebaseFirestore.QueryDocumentSnapshot): LogEntry {
@@ -25,6 +26,11 @@ function toLogEntry(doc: FirebaseFirestore.QueryDocumentSnapshot): LogEntry {
 
 export async function GET(request: NextRequest) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const date = searchParams.get("date");
     const tzOffsetMinutes = Number(searchParams.get("tzOffsetMinutes") ?? "0");
@@ -43,6 +49,7 @@ export async function GET(request: NextRequest) {
     const db = getDb();
     const snapshot = await db
       .collection("logs")
+      .where("userId", "==", userId)
       .where("timestamp", ">=", Timestamp.fromMillis(startUtcMs))
       .where("timestamp", "<", Timestamp.fromMillis(endUtcMs))
       .orderBy("timestamp", "desc")

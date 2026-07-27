@@ -6,28 +6,47 @@ const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
 export interface SessionPayload {
   authenticated: true;
+  userId: string;
   iat: number;
   exp: number;
 }
 
-export function signSessionToken(): string {
+export function signSessionToken(userId: string): string {
   if (!JWT_SECRET) throw new Error("JWT_SECRET is not configured");
-  return jwt.sign({ authenticated: true }, JWT_SECRET, {
+  return jwt.sign({ authenticated: true, userId }, JWT_SECRET, {
     expiresIn: SESSION_MAX_AGE_SECONDS,
   });
 }
 
-export function verifySessionToken(token: string | undefined | null): boolean {
-  if (!token || !JWT_SECRET) return false;
+export function verifySessionToken(token: string | undefined | null): string | null {
+  if (!token || !JWT_SECRET) return null;
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as SessionPayload;
-    return decoded.authenticated === true;
+    return decoded.authenticated === true && decoded.userId ? decoded.userId : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
 export { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS };
+
+// --- Configured users (single shared password per person, no accounts/usernames) ---
+
+export interface ConfiguredUser {
+  userId: string;
+  passwordHash: string;
+}
+
+export function getConfiguredUsers(): ConfiguredUser[] {
+  const users: ConfiguredUser[] = [];
+  if (process.env.APP_PASSWORD_HASH) {
+    users.push({ userId: "user1", passwordHash: process.env.APP_PASSWORD_HASH });
+  }
+  if (process.env.APP_PASSWORD_HASH_2) {
+    users.push({ userId: "user2", passwordHash: process.env.APP_PASSWORD_HASH_2 });
+  }
+  return users;
+}
 
 // --- In-memory login rate limiting (single-instance, single-user scale) ---
 

@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { getDb } from "@/lib/firebase-admin";
+import { getUserId } from "@/lib/requestUser";
 import type { LogEntry } from "@/lib/types";
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ favoriteId: string }> }
 ) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { favoriteId } = await params;
     const db = getDb();
     const favRef = db.collection("favorites").doc(favoriteId);
     const favDoc = await favRef.get();
-    if (!favDoc.exists) {
+    if (!favDoc.exists || favDoc.data()?.userId !== userId) {
       return NextResponse.json({ error: "Favorite not found" }, { status: 404 });
     }
     const fav = favDoc.data()!;
@@ -20,6 +26,7 @@ export async function POST(
     const now = FieldValue.serverTimestamp();
     const logRef = db.collection("logs").doc();
     await logRef.set({
+      userId,
       timestamp: now,
       photoThumbnailUrl: "",
       photoPublicId: "",

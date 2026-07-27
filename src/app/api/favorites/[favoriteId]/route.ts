@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/firebase-admin";
+import { getUserId } from "@/lib/requestUser";
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ favoriteId: string }> }
 ) {
   try {
+    const userId = getUserId(request);
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { favoriteId } = await params;
     const db = getDb();
     const docRef = db.collection("favorites").doc(favoriteId);
     const doc = await docRef.get();
-    if (!doc.exists) {
+    if (!doc.exists || doc.data()?.userId !== userId) {
       return NextResponse.json({ error: "Favorite not found" }, { status: 404 });
     }
     await docRef.delete();

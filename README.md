@@ -1,6 +1,6 @@
 # Food Tracker
 
-A private, single-user, phone-first PWA that estimates calories and macros from a photo of food using Claude's vision API. No accounts, no signup — just one password gate.
+A private, phone-first PWA that estimates calories and macros from a photo of food using Claude's vision API. No accounts, no signup — just a password gate. Supports up to two people, each with their own password and completely separate logs/favorites/totals.
 
 Stack: Next.js 14+ (App Router) · TypeScript · Tailwind CSS · Firestore (via `firebase-admin`) · Cloudinary · Claude (`@anthropic-ai/sdk`) · next-pwa.
 
@@ -48,6 +48,7 @@ Copy `.env.local.example` to `.env.local` and fill in real values:
 ```
 ANTHROPIC_API_KEY=
 APP_PASSWORD_HASH=
+APP_PASSWORD_HASH_2=
 JWT_SECRET=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -56,6 +57,8 @@ CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
 ```
+
+`APP_PASSWORD_HASH_2` is optional — set it to support a second person. Whichever password a login attempt matches determines which person's data (`user1` for `APP_PASSWORD_HASH`, `user2` for `APP_PASSWORD_HASH_2`) it's tied to; every log and favorite is scoped to that person, so two people can use the same deployed app simultaneously without ever seeing each other's entries.
 
 None of these are `NEXT_PUBLIC_*` — nothing here is ever exposed to the browser. All Firebase/Cloudinary/Claude calls happen in server-side API routes.
 
@@ -77,7 +80,16 @@ FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KE
 node scripts/hash-password.js "your-password-here"
 ```
 
-This prints a bcrypt hash. Paste it into `APP_PASSWORD_HASH` (remembering to escape the `$` characters as above). Generate `JWT_SECRET` as any random 32+ character string (e.g. `openssl rand -hex 32`).
+This prints a bcrypt hash. Paste it into `APP_PASSWORD_HASH` (remembering to escape the `$` characters as above), or into `APP_PASSWORD_HASH_2` for the second person's password. Generate `JWT_SECRET` as any random 32+ character string (e.g. `openssl rand -hex 32`).
+
+### Firestore composite indexes (required for two-person mode)
+
+Once `userId` scoping is in play, the `logs` and `favorites` queries need two composite indexes that Firestore won't create automatically. The first time each query runs without them, Firestore returns an error containing a direct "create this index" link — open it (you'll need to be logged into the Google account tied to the Firebase project), click **Create Index**, and wait ~1–2 minutes for it to finish building. You need one for:
+
+- `logs`: equality on `userId` + range/order on `timestamp`
+- `favorites`: equality on `userId` + order on `lastUsedAt`
+
+If you'd rather set them up before hitting the error, go to Firestore → Indexes → Composite → Add Index in the Firebase console and create those two combinations manually.
 
 ## Running locally
 
@@ -104,10 +116,10 @@ npm start
 
 ## Architecture notes
 
-- **Auth**: a single shared password (bcrypt-hashed), a JWT session cookie (httpOnly, secure, sameSite=strict, 7-day expiry), and `middleware.ts` gating every route except `/login` and `/api/auth/*`. Failed logins are rate-limited per IP (5 attempts → 5 minute lockout) via an in-memory map — fine at single-user scale, but note it resets on server restart/redeploy.
-- **AI pipeline**: `POST /api/logs/analyze` resizes the photo server-side (sharp), sends it to Claude (`claude-sonnet-5`) with a JSON-schema-constrained response for guaranteed-valid structured output, uploads a compressed thumbnail to Cloudinary, and writes the log to Firestore.
+- **Auth**: one shared password per person (bcrypt-hashed, up to two via `APP_PASSWORD_HASH`/`APP_PASSWORD_HASH_2`), a JWT session cookie (httpOnly, secure, sameSite=strict, 7-day expiry) carrying which person logged in, and `middleware.ts` gating every route except `/login` and `/api/auth/*`. On a valid session, middleware injects an `x-user-id` header (`user1`/`user2`) that every API route reads to scope its Firestore reads/writes and reject cross-person access to a `logId`/`favoriteId` that isn't theirs. Failed logins are rate-limited per IP (5 attempts → 5 minute lockout) via an in-memory map — fine at this scale, but note it resets on server restart/redeploy, and two people behind the same NAT/WiFi share the same rate-limit bucket.
+- **AI pipeline**: `POST /api/logs/analyze` resizes the photo server-side (sharp), sends it to Claude (`claude-sonnet-5`) with a JSON-schema-constrained response for guaranteed-valid structured output, uploads a compressed thumbnail to Cloudinary, and writes the log to Firestore (tagged with the logged-in person's `userId`).
 - **Offline support**: `next-pwa` precaches the app shell. An IndexedDB queue (via `idb`) captures analyze/edit/delete actions made while offline; a small manager component flushes the queue on the `online` event and after a successful flush notifies open tabs to re-fetch. Pending items show a small amber sync icon.
-- **No `/users` collection** — this is intentionally a single-user app; there's nothing to key data by.
+- **No `/users` collection** — there's no registration or profile data, just a fixed `userId` string per configured password, used purely to partition `/logs` and `/favorites` documents.
 
 ## Security checklist
 

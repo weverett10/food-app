@@ -17,9 +17,9 @@ export const config = {
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const isValid = verifySessionToken(token);
+  const userId = verifySessionToken(token);
 
-  if (!isValid) {
+  if (!userId) {
     if (request.nextUrl.pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -27,5 +27,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-user-id", userId);
+
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
