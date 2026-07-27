@@ -5,14 +5,20 @@ import Link from "next/link";
 import Image from "next/image";
 import type { LogEntry } from "@/lib/types";
 
-export default function LogEntryCard({ log }: { log: LogEntry }) {
+export default function LogEntryCard({
+  log,
+  pendingSync = false,
+}: {
+  log: LogEntry;
+  pendingSync?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const foodSummary = log.foods.map((f) => f.name).join(", ") || "Untitled meal";
 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
       <div className="flex items-center gap-3">
-        <Link href={`/logs/${log.logId}/edit`} className="shrink-0">
+        <Link href={`/logs/${log.logId}/edit`} className="relative shrink-0">
           {log.photoThumbnailUrl ? (
             <Image
               src={log.photoThumbnailUrl}
@@ -26,6 +32,14 @@ export default function LogEntryCard({ log }: { log: LogEntry }) {
             <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-neutral-100 text-xs text-neutral-400 dark:bg-neutral-800">
               No photo
             </div>
+          )}
+          {pendingSync && (
+            <span
+              title="Not yet synced"
+              className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[10px] text-white shadow"
+            >
+              ⟳
+            </span>
           )}
         </Link>
         <Link href={`/logs/${log.logId}/edit`} className="min-w-0 flex-1">

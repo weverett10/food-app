@@ -5,32 +5,68 @@ import { format } from "date-fns";
 import imageCompression from "browser-image-compression";
 import NavBar from "@/components/NavBar";
 import LogEntryCard from "@/components/LogEntryCard";
+import PendingAnalyzeCard from "@/components/PendingAnalyzeCard";
 import { todayLocalDateString, localTzOffsetMinutes } from "@/lib/dateHelpers";
+import {
+  enqueueAction,
+  getQueuedActions,
+  getTodayCache,
+  setTodayCache,
+  type QueuedAnalyze,
+  type Totals,
+} from "@/lib/offlineDb";
+import { SYNCED_EVENT } from "@/components/OfflineSyncManager";
 import type { LogEntry } from "@/lib/types";
 
-interface Totals {
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 export default function TodayPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [totals, setTotals] = useState<Totals>({ calories: 0, protein: 0, carbs: 0, fat: 0 });
   const [loading, setLoading] = useState(true);
+  const [pendingAnalyses, setPendingAnalyses] = useState<QueuedAnalyze[]>([]);
+  const [pendingSyncLogIds, setPendingSyncLogIds] = useState<Set<string>>(new Set());
   const [showUpload, setShowUpload] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [note, setNote] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const refreshQueueState = useCallback(async () => {
+    const queue = await getQueuedActions();
+    setPendingAnalyses(queue.filter((a): a is QueuedAnalyze => a.type === "analyze"));
+    setPendingSyncLogIds(
+      new Set(
+        queue
+          .filter((a) => a.type === "patch" || a.type === "delete")
+          .map((a) => a.logId)
+      )
+    );
+  }, []);
+
   const loadToday = useCallback(async () => {
-    setLoading(true);
     const date = todayLocalDateString();
     const tzOffsetMinutes = localTzOffsetMinutes();
+
+    const cached = await getTodayCache(date).catch(() => undefined);
+    if (cached) {
+      setLogs(cached.logs);
+      setTotals(cached.totals);
+      setLoading(false);
+    }
+
+    await refreshQueueState();
+
     try {
       const res = await fetch(
         `/api/logs/today?date=${date}&tzOffsetMinutes=${tzOffsetMinutes}`
@@ -39,14 +75,26 @@ export default function TodayPage() {
       if (res.ok) {
         setLogs(data.logs);
         setTotals(data.totals);
+        setTodayCache(date, data.logs, data.totals).catch(() => {});
       }
+    } catch {
+      // Offline or unreachable — keep showing cached data, if any.
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshQueueState]);
 
   useEffect(() => {
     loadToday();
+    function handleSynced() {
+      loadToday();
+    }
+    window.addEventListener(SYNCED_EVENT, handleSynced);
+    window.addEventListener("online", handleSynced);
+    return () => {
+      window.removeEventListener(SYNCED_EVENT, handleSynced);
+      window.removeEventListener("online", handleSynced);
+    };
   }, [loadToday]);
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -78,14 +126,32 @@ export default function TodayPage() {
         useWebWorker: true,
       });
 
-      const formData = new FormData();
-      formData.append("photo", compressed, selectedFile.name);
-      if (note.trim()) formData.append("note", note.trim());
+      const trimmedNote = note.trim() || null;
 
-      const res = await fetch("/api/logs/analyze", {
-        method: "POST",
-        body: formData,
-      });
+      let res: Response;
+      try {
+        const formData = new FormData();
+        formData.append("photo", compressed, selectedFile.name);
+        if (trimmedNote) formData.append("note", trimmedNote);
+        res = await fetch("/api/logs/analyze", { method: "POST", body: formData });
+      } catch {
+        // Network unreachable — queue for later sync.
+        const previewDataUrl = await blobToDataUrl(compressed);
+        await enqueueAction({
+          type: "analyze",
+          tempId: crypto.randomUUID(),
+          photoBlob: compressed,
+          photoFileName: selectedFile.name,
+          note: trimmedNote,
+          previewDataUrl,
+        });
+        await refreshQueueState();
+        setToast("Queued — will analyze when back online");
+        setTimeout(() => setToast(null), 3000);
+        closeUpload();
+        return;
+      }
+
       const data = await res.json();
 
       if (!res.ok) {
@@ -94,13 +160,16 @@ export default function TodayPage() {
         return;
       }
 
-      setLogs((prev) => [data, ...prev]);
-      setTotals((prev) => ({
-        calories: prev.calories + data.totalCalories,
-        protein: prev.protein + data.totalProtein,
-        carbs: prev.carbs + data.totalCarbs,
-        fat: prev.fat + data.totalFat,
-      }));
+      const nextLogs = [data, ...logs];
+      const nextTotals = {
+        calories: totals.calories + data.totalCalories,
+        protein: totals.protein + data.totalProtein,
+        carbs: totals.carbs + data.totalCarbs,
+        fat: totals.fat + data.totalFat,
+      };
+      setLogs(nextLogs);
+      setTotals(nextTotals);
+      setTodayCache(todayLocalDateString(), nextLogs, nextTotals).catch(() => {});
       closeUpload();
     } catch {
       setError("Something went wrong. Try again.");
@@ -146,14 +215,25 @@ export default function TodayPage() {
 
         {loading ? (
           <p className="py-8 text-center text-sm text-neutral-400">Loading...</p>
-        ) : logs.length === 0 ? (
+        ) : logs.length === 0 && pendingAnalyses.length === 0 ? (
           <p className="py-8 text-center text-sm text-neutral-400">
             Nothing logged yet today.
           </p>
         ) : (
           <div className="space-y-2">
+            {pendingAnalyses.map((item) => (
+              <PendingAnalyzeCard
+                key={item.tempId}
+                previewDataUrl={item.previewDataUrl}
+                note={item.note}
+              />
+            ))}
             {logs.map((log) => (
-              <LogEntryCard key={log.logId} log={log} />
+              <LogEntryCard
+                key={log.logId}
+                log={log}
+                pendingSync={pendingSyncLogIds.has(log.logId)}
+              />
             ))}
           </div>
         )}
@@ -195,6 +275,12 @@ export default function TodayPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 rounded-full bg-neutral-900 px-4 py-2 text-sm text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
+          {toast}
         </div>
       )}
 

@@ -3,6 +3,7 @@
 import { useEffect, useState, use as usePromise } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { enqueueAction } from "@/lib/offlineDb";
 import type { FoodItem, LogEntry } from "@/lib/types";
 
 type EditMode = "items" | "totals";
@@ -92,11 +93,20 @@ export default function EditLogPage({
               totalCarbs: totals.carbs,
               totalFat: totals.fat,
             };
-      const res = await fetch(`/api/logs/${logId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      let res: Response;
+      try {
+        res = await fetch(`/api/logs/${logId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch {
+        // Network unreachable — queue the edit for later sync.
+        await enqueueAction({ type: "patch", logId, body });
+        router.push("/");
+        router.refresh();
+        return;
+      }
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Could not save changes");
@@ -136,7 +146,16 @@ export default function EditLogPage({
     if (!confirm("Delete this entry? This cannot be undone.")) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/logs/${logId}`, { method: "DELETE" });
+      let res: Response;
+      try {
+        res = await fetch(`/api/logs/${logId}`, { method: "DELETE" });
+      } catch {
+        // Network unreachable — queue the delete for later sync.
+        await enqueueAction({ type: "delete", logId });
+        router.push("/");
+        router.refresh();
+        return;
+      }
       if (res.ok) {
         router.push("/");
         router.refresh();
