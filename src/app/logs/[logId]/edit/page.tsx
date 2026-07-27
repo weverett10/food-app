@@ -111,6 +111,27 @@ export default function EditLogPage({
     }
   }
 
+  async function handleSaveAsFavorite() {
+    const name = prompt("Name this favorite (e.g. \"Chicken & Rice Bowl\")");
+    if (!name || !name.trim()) return;
+    setError(null);
+    try {
+      const res = await fetch("/api/favorites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logId, name: name.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Could not save favorite");
+        return;
+      }
+      alert(`Saved "${name.trim()}" to favorites`);
+    } catch {
+      setError("Something went wrong. Try again.");
+    }
+  }
+
   async function handleDelete() {
     if (!confirm("Delete this entry? This cannot be undone.")) return;
     setDeleting(true);
@@ -288,9 +309,16 @@ export default function EditLogPage({
         )}
 
         <button
+          onClick={handleSaveAsFavorite}
+          className="mt-6 w-full rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-700 dark:border-neutral-700 dark:text-neutral-300"
+        >
+          Save as favorite
+        </button>
+
+        <button
           onClick={handleDelete}
           disabled={deleting}
-          className="mt-6 w-full rounded-lg border border-red-300 py-2.5 text-sm font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
+          className="mt-3 w-full rounded-lg border border-red-300 py-2.5 text-sm font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
         >
           {deleting ? "Deleting..." : "Delete entry"}
         </button>
