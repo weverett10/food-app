@@ -105,7 +105,7 @@ npm start
 ## Architecture notes
 
 - **Auth**: a single shared password (bcrypt-hashed), a JWT session cookie (httpOnly, secure, sameSite=strict, 7-day expiry), and `middleware.ts` gating every route except `/login` and `/api/auth/*`. Failed logins are rate-limited per IP (5 attempts → 5 minute lockout) via an in-memory map — fine at single-user scale, but note it resets on server restart/redeploy.
-- **AI pipeline**: `POST /api/logs/analyze` resizes the photo server-side (sharp), sends it to Claude (`claude-opus-5`) with a JSON-schema-constrained response for guaranteed-valid structured output, uploads a compressed thumbnail to Cloudinary, and writes the log to Firestore.
+- **AI pipeline**: `POST /api/logs/analyze` resizes the photo server-side (sharp), sends it to Claude (`claude-sonnet-5`) with a JSON-schema-constrained response for guaranteed-valid structured output, uploads a compressed thumbnail to Cloudinary, and writes the log to Firestore.
 - **Offline support**: `next-pwa` precaches the app shell. An IndexedDB queue (via `idb`) captures analyze/edit/delete actions made while offline; a small manager component flushes the queue on the `online` event and after a successful flush notifies open tabs to re-fetch. Pending items show a small amber sync icon.
 - **No `/users` collection** — this is intentionally a single-user app; there's nothing to key data by.
 

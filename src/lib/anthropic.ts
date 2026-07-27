@@ -3,7 +3,7 @@ import type { ClaudeAnalysisResult } from "./types";
 
 const client = new Anthropic();
 
-const MODEL = "claude-opus-5";
+const MODEL = "claude-sonnet-5";
 
 const RESPONSE_SCHEMA = {
   type: "object",
